@@ -69,7 +69,26 @@ class MemeConnect(commands.Bot):
             except Exception as e:
                 print(f"❌ Failed to load {cog}: {e}")
 
-        # C. Start Background Tasks
+        # C. Populate Channels Table for Existing Guilds (Fix for Render's ephemeral storage)
+        async with aiosqlite.connect(self.config['DB_PATH']) as db:
+            for guild in self.guilds:
+                dank_channel = discord.utils.get(guild.text_channels, name="dank-memes")
+                wholesome_channel = discord.utils.get(guild.text_channels, name="wholesome-memes")
+                
+                if dank_channel:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
+                        (guild.id, dank_channel.id, "dank")
+                    )
+                if wholesome_channel:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
+                        (guild.id, wholesome_channel.id, "wholesome")
+                    )
+            await db.commit()
+        print("✅ Populated channels table for existing guilds.")
+
+        # D. Start Background Tasks
         self.check_judicial_trials.start()
 
     # --- THE JUDICIAL LOOP (THE 24H CLOCK) ---
