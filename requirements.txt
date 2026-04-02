@@ -1,0 +1,9 @@
+discord.py
+aiosqlite
+python-dotenv
+openai
+Pillow
+imagehash
+torch
+torchvision
+aiohttp

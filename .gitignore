@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Database
+*.db
+*.db-journal
+
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# AI & Training Data
+# We ignore the raw data but keep the 'brain' file (optional)
+data/
+training_data/
+*.pth
+!meme_brain.pth
+
+# OS files
+.DS_Store
+Thumbs.db
