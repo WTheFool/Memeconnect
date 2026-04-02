@@ -3,6 +3,8 @@ from discord.ext import commands, tasks
 import os
 import aiosqlite
 from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
 
 import database
 
@@ -16,6 +18,22 @@ def _get_id(key):
         return int(val) if val else None
     except ValueError:
         return None
+
+# --- DUMMY WEB SERVER FOR RENDER FREE TIER ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "MemeConnect is Online! WASA WASA!"
+
+def run_flask():
+    # Render looks for port 10000 by default, or uses the PORT environment variable
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
 
 
 class MemeConnect(commands.Bot):
@@ -122,7 +140,7 @@ async def on_guild_join(guild):
 @bot.event
 async def on_ready():
     print("-" * 30)
-    print(f"🚀 WASA WASA WASA! {bot.user.name} IS ONLINE!")
+    print(f"🚀 WASA WASA WASA! {bot.user.name} IS LIVE ON RENDER!")
     print(f"🛡️ Admin ID: {bot.config.get('ADMIN_ID')}")
     print("-" * 30)
 
@@ -131,6 +149,9 @@ async def on_ready():
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
     if token:
+        # Start the Flask web server in a separate thread so Render sees a port listening
+        keep_alive()
+        # Start the Discord bot
         bot.run(token)
     else:
         print("❌ ERROR: DISCORD_TOKEN is not set in the environment.")
