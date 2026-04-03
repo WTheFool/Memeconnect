@@ -57,84 +57,95 @@ class Relay(commands.Cog):
         # 1. Basic Filters
         if message.author.bot: return
 
-        # 2. Check if Channel is a Registered Relay (dank-memes or wholesome-memes)
-        if message.channel.name not in ["dank-memes", "wholesome-memes"]:
+        # Prevent duplicate processing of the same message
+        if message.id in self.processing:
+            print(f"⏭️ Skipping duplicate processing of message {message.id}")
             return
         
-        category = "dank" if message.channel.name == "dank-memes" else "wholesome"
+        self.processing.add(message.id)
+        
+        try:
+            # 2. Check if Channel is a Registered Relay (dank-memes or wholesome-memes)
+            if message.channel.name not in ["dank-memes", "wholesome-memes"]:
+                return
+            
+            category = "dank" if message.channel.name == "dank-memes" else "wholesome"
 
-        # 3. Enforce 'Images/Videos Only' (Deletes text/spam)
-        valid_attachments = []
-        for attachment in message.attachments:
-            if attachment.content_type and attachment.content_type.startswith(('image/', 'video/')):
-                valid_attachments.append(attachment)
+            # 3. Enforce 'Images/Videos Only' (Deletes text/spam)
+            valid_attachments = []
+            for attachment in message.attachments:
+                if attachment.content_type and attachment.content_type.startswith(('image/', 'video/')):
+                    valid_attachments.append(attachment)
 
-        if not valid_attachments:
-            await message.delete()
-            return await message.channel.send(f"🚫 **{message.author.name}**, only memes allowed in the relay!",
-                                              delete_after=3)
+            if not valid_attachments:
+                await message.delete()
+                return await message.channel.send(f"🚫 **{message.author.name}**, only memes allowed in the relay!",
+                                                  delete_after=3)
 
-        if len(valid_attachments) > 10:
-            await message.delete()
-            return await message.channel.send("🚫 Too many memes! Max 10 at a time. Slow down!", delete_after=5)
+            if len(valid_attachments) > 10:
+                await message.delete()
+                return await message.channel.send("🚫 Too many memes! Max 10 at a time. Slow down!", delete_after=5)
 
-        # 4. Identity & Ban Check
-        async with aiosqlite.connect("meme_connect.db") as db:
-            async with db.execute("SELECT is_banned, is_staff FROM users WHERE user_id = ?",
-                                  (message.author.id,)) as cursor:
-                user_data = await cursor.fetchone()
-                is_banned = user_data[0] if user_data else 0
-                is_staff = user_data[1] if user_data else 0
-                if is_banned: return
+            # 4. Identity & Ban Check
+            async with aiosqlite.connect("meme_connect.db") as db:
+                async with db.execute("SELECT is_banned, is_staff FROM users WHERE user_id = ?",
+                                      (message.author.id,)) as cursor:
+                    user_data = await cursor.fetchone()
+                    is_banned = user_data[0] if user_data else 0
+                    is_staff = user_data[1] if user_data else 0
+                    if is_banned: return
 
-        # 5. Process each attachment
-        processed_attachments = []
-        for attachment in valid_attachments:
-            try:
-                img_bytes = await attachment.read()
+            # 5. Process each attachment
+            processed_attachments = []
+            for attachment in valid_attachments:
+                try:
+                    img_bytes = await attachment.read()
 
-                # A. Hash Check (Free/Fast) - Skip for videos since PIL can't handle them
-                if attachment.content_type.startswith('image/'):
-                    img_hash = generate_phash(img_bytes)
-                    async with aiosqlite.connect("meme_connect.db") as db:
-                        async with db.execute("SELECT image_hash FROM banned_hashes WHERE image_hash = ?", (img_hash,)) as cursor:
-                            if await cursor.fetchone():
-                                continue  # Skip this one
+                    # A. Hash Check (Free/Fast) - Skip for videos since PIL can't handle them
+                    if attachment.content_type.startswith('image/'):
+                        img_hash = generate_phash(img_bytes)
+                        async with aiosqlite.connect("meme_connect.db") as db:
+                            async with db.execute("SELECT image_hash FROM banned_hashes WHERE image_hash = ?", (img_hash,)) as cursor:
+                                if await cursor.fetchone():
+                                    continue  # Skip this one
 
-                # B. Local Neural Net Check (The Brain) - Only for images
-                if self.model and attachment.content_type.startswith('image/'):
-                    prediction = predict_meme(img_bytes, self.model)
-                    if prediction == 1:
-                        continue  # Skip
-
-                # C. OpenAI Check (The $5 Backup)
-                if os.getenv('USE_OPENAI_AI') == 'True':
-                    try:
-                        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-                        response = client.moderations.create(
-                            model="omni-moderation-latest",
-                            input=[{"type": "image_url", "image_url": {"url": attachment.url}}]
-                        )
-                        if response.results[0].flagged:
+                    # B. Local Neural Net Check (The Brain) - Only for images
+                    if self.model and attachment.content_type.startswith('image/'):
+                        prediction = predict_meme(img_bytes, self.model)
+                        if prediction == 1:
                             continue  # Skip
-                    except Exception as e:
-                        print(f"⚠️ OpenAI Moderation failed: {e}")
 
-                # If passed all checks, add to processed
-                processed_attachments.append((attachment, img_bytes))
-            except Exception as e:
-                print(f"⚠️ Failed to process attachment {attachment.filename}: {e}")
-                continue  # Skip this attachment
+                    # C. OpenAI Check (The $5 Backup)
+                    if os.getenv('USE_OPENAI_AI') == 'True':
+                        try:
+                            client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                            response = client.moderations.create(
+                                model="omni-moderation-latest",
+                                input=[{"type": "image_url", "image_url": {"url": attachment.url}}]
+                            )
+                            if response.results[0].flagged:
+                                continue  # Skip
+                        except Exception as e:
+                            print(f"⚠️ OpenAI Moderation failed: {e}")
 
-        if not processed_attachments:
+                    # If passed all checks, add to processed
+                    processed_attachments.append((attachment, img_bytes))
+                except Exception as e:
+                    print(f"⚠️ Failed to process attachment {attachment.filename}: {e}")
+                    continue  # Skip this attachment
+
+            if not processed_attachments:
+                await message.delete()
+                return await message.channel.send("🚫 No valid memes passed the checks.", delete_after=5)
+
+            # 6. Queue the batch
+            badge = await self.get_badge_prefix(message.author.id)
+            await message.channel.send(f"Meme(s) queued! ({len(processed_attachments)})", delete_after=5)
             await message.delete()
-            return await message.channel.send("🚫 No valid memes passed the checks.", delete_after=5)
-
-        # 6. Queue the batch
-        badge = await self.get_badge_prefix(message.author.id)
-        await message.channel.send(f"Meme(s) queued! ({len(processed_attachments)})", delete_after=5)
-        await message.delete()
-        self.bot.loop.create_task(self.broadcast_batch(message, processed_attachments, category, badge))
+            self.bot.loop.create_task(self.broadcast_batch(message, processed_attachments, category, badge))
+        finally:
+            # Always remove from processing set
+            self.processing.discard(message.id)
 
     async def broadcast_single(self, message, attachment, img_bytes, category, badge):
         # Prepare for broadcast
