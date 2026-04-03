@@ -36,9 +36,16 @@ async def init_db():
                 category TEXT,
                 upvotes INTEGER DEFAULT 0,
                 downvotes INTEGER DEFAULT 0,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                guild_id INTEGER
             )
         """)
+
+        # Add guild_id column if it doesn't exist (for existing tables)
+        try:
+            await db.execute("ALTER TABLE memes ADD COLUMN guild_id INTEGER")
+        except aiosqlite.OperationalError:
+            pass  # Column already exists
 
         # Blacklist of Image Hashes
         await db.execute("""

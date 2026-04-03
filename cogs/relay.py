@@ -61,12 +61,20 @@ class Relay(commands.Cog):
         
         category = "dank" if message.channel.name == "dank-memes" else "wholesome"
 
-        # 3. Enforce 'Images Only' (Deletes text/spam)
-        if not message.attachments or not any(
-                a.content_type and a.content_type.startswith(('image/', 'video/')) for a in message.attachments):
+        # 3. Enforce 'Images/Videos Only' (Deletes text/spam)
+        valid_attachments = []
+        for attachment in message.attachments:
+            if attachment.content_type and attachment.content_type.startswith(('image/', 'video/')):
+                valid_attachments.append(attachment)
+
+        if not valid_attachments:
             await message.delete()
             return await message.channel.send(f"🚫 **{message.author.name}**, only memes allowed in the relay!",
                                               delete_after=3)
+
+        if len(valid_attachments) > 10:
+            await message.delete()
+            return await message.channel.send("🚫 Too many memes! Max 10 at a time. Slow down!", delete_after=5)
 
         # 4. Identity & Ban Check
         async with aiosqlite.connect("meme_connect.db") as db:
@@ -77,55 +85,57 @@ class Relay(commands.Cog):
                 is_staff = user_data[1] if user_data else 0
                 if is_banned: return
 
-        # 5. Processing the Meme
-        attachment = message.attachments[0]
-        img_bytes = await attachment.read()
+        # 5. Process each attachment
+        processed_attachments = []
+        for attachment in valid_attachments:
+            img_bytes = await attachment.read()
 
-        # A. Hash Check (Free/Fast)
-        img_hash = generate_phash(img_bytes)
-        async with aiosqlite.connect("meme_connect.db") as db:
-            async with db.execute("SELECT image_hash FROM banned_hashes WHERE image_hash = ?", (img_hash,)) as cursor:
-                if await cursor.fetchone():
-                    await message.delete()
-                    return await message.channel.send("🚫 This meme is blacklisted.", delete_after=5)
+            # A. Hash Check (Free/Fast)
+            img_hash = generate_phash(img_bytes)
+            async with aiosqlite.connect("meme_connect.db") as db:
+                async with db.execute("SELECT image_hash FROM banned_hashes WHERE image_hash = ?", (img_hash,)) as cursor:
+                    if await cursor.fetchone():
+                        continue  # Skip this one
 
-        # B. Local Neural Net Check (The Brain)
-        if self.model:
-            # predict_meme returns 0 (Safe) or 1 (Unsafe)
-            prediction = predict_meme(img_bytes, self.model)
-            if prediction == 1:  # Assuming '1' is the 'unsafe' folder index
-                await message.delete()
-                return await message.channel.send("🚨 My local brain flagged this content.", delete_after=5)
+            # B. Local Neural Net Check (The Brain)
+            if self.model:
+                prediction = predict_meme(img_bytes, self.model)
+                if prediction == 1:
+                    continue  # Skip
 
-        # C. OpenAI Check (The $5 Backup)
-        if os.getenv('USE_OPENAI_AI') == 'True':
-            try:
-                client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-                # Note: Moderation API for images requires specific model support
-                # For simplicity, we use the standard check here
-                response = client.moderations.create(
-                    model="omni-moderation-latest",
-                    input=[{"type": "image_url", "image_url": {"url": attachment.url}}]
-                )
-                if response.results[0].flagged:
-                    await message.delete()
-                    return await message.channel.send("🚨 OpenAI flagged this content.", delete_after=5)
-            except Exception as e:
-                print(f"⚠️ OpenAI Moderation failed: {e}")
-                # We can still proceed if the local net passed and OpenAI fails temporarily, 
-                # or block it. Usually safe to proceed if local AI is fine.
+            # C. OpenAI Check (The $5 Backup)
+            if os.getenv('USE_OPENAI_AI') == 'True':
+                try:
+                    client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                    response = client.moderations.create(
+                        model="omni-moderation-latest",
+                        input=[{"type": "image_url", "image_url": {"url": attachment.url}}]
+                    )
+                    if response.results[0].flagged:
+                        continue  # Skip
+                except Exception as e:
+                    print(f"⚠️ OpenAI Moderation failed: {e}")
 
-        # 7. Queue the Meme for Broadcast
-        await message.channel.send("Meme queued!", delete_after=5)
+            # If passed all checks, add to processed
+            processed_attachments.append((attachment, img_bytes))
+
+        if not processed_attachments:
+            await message.delete()
+            return await message.channel.send("🚫 No valid memes passed the checks.", delete_after=5)
+
+        # 6. Queue the batch
+        await message.channel.send(f"Meme(s) queued! ({len(processed_attachments)})", delete_after=5)
         await message.delete()
-        self.bot.loop.create_task(self.broadcast_meme(message, category, img_bytes, badge))
+        self.bot.loop.create_task(self.broadcast_batch(message, processed_attachments, category, badge))
 
-    async def broadcast_meme(self, message, category, img_bytes, badge):
+    async def broadcast_single(self, message, attachment, img_bytes, category, badge):
         # Prepare for broadcast
         embed = discord.Embed(title=f"🚀 New {category.capitalize()} Meme", color=discord.Color.gold())
         embed.set_author(name=f"{badge}{message.author.name}", icon_url=message.author.display_avatar.url)
-        file = discord.File(io.BytesIO(img_bytes), filename="meme.png")
-        embed.set_image(url="attachment://meme.png")
+        filename = attachment.filename
+        file = discord.File(io.BytesIO(img_bytes), filename=filename)
+        if attachment.content_type.startswith('image/'):
+            embed.set_image(url=f"attachment://{filename}")
         
         # Fetch all target channels
         async with aiosqlite.connect("meme_connect.db") as db:
@@ -133,32 +143,15 @@ class Relay(commands.Cog):
                                   (category,)) as cursor:
                 channels = await cursor.fetchall()
 
-        print(f"Broadcasting to {len(channels)} total channels for category {category}")
+        print(f"Broadcasting meme {filename} to {len(channels)} channels")
 
-        sent_count = 0
-        # First, send to origin channel
-        try:
-            m = await message.channel.send(file=file, embed=embed)
-            await m.add_reaction("⬆️")
-            await m.add_reaction("⬇️")
-            await m.add_reaction("🚩")
-            async with aiosqlite.connect("meme_connect.db") as db:
-                await db.execute(
-                    "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
-                    (m.id, message.author.id, "attachment://meme.png", category)
-                )
-                await db.commit()
-        except Exception as e:
-            print(f"Error sending to origin channel: {e}")
-
-        # Then, send to other channels with 2s delay between
-        for (chan_id,) in channels:
-            if chan_id == message.channel.id:
-                continue
+        # Send to all channels with 2s delay between
+        for i, (chan_id,) in enumerate(channels):
+            if i > 0:
+                await asyncio.sleep(2)
                 
             chan = self.bot.get_channel(chan_id)
             if chan:
-                await asyncio.sleep(2)
                 try:
                     m = await chan.send(file=file, embed=embed)
                     await m.add_reaction("⬆️")
@@ -168,19 +161,26 @@ class Relay(commands.Cog):
                     # Store in Memes table for Rankings
                     async with aiosqlite.connect("meme_connect.db") as db:
                         await db.execute(
-                            "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
-                            (m.id, message.author.id, "attachment://meme.png", category)
+                            "INSERT INTO memes (message_id, author_id, attachment_url, category, guild_id) VALUES (?, ?, ?, ?, ?)",
+                            (m.id, message.author.id, f"attachment://{filename}", category, chan.guild.id)
                         )
                         await db.commit()
-                    sent_count += 1
                 except discord.Forbidden:
                     continue
                 except Exception as e:
                     print(f"Error broadcasting to channel {chan_id}: {e}")
 
+    async def broadcast_batch(self, message, processed_attachments, category, badge):
+        for attachment, img_bytes in processed_attachments:
+            await self.broadcast_single(message, attachment, img_bytes, category, badge)
+
         # Tell the user it broadcast successfully
         try:
-            info_msg = await message.channel.send(f"✨ Broadcasted to {sent_count} other servers.", delete_after=10)
+            total_memes = len(processed_attachments)
+            async with aiosqlite.connect("meme_connect.db") as db:
+                async with db.execute("SELECT COUNT(*) FROM channels WHERE category = ?", (category,)) as cursor:
+                    channel_count = (await cursor.fetchone())[0]
+            info_msg = await message.channel.send(f"✨ Broadcasted {total_memes} meme(s) to {channel_count} channel(s).", delete_after=10)
         except Exception as e:
             print(f"Error sending broadcast info: {e}")
 

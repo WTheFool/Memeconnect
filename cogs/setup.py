@@ -82,6 +82,53 @@ class Setup(commands.Cog):
             await db.commit()
         await ctx.send(f"📥 {user.name} is no longer an Admin (but remains a Moderator).")
 
+    @memeconnect.command(name="stats")
+    async def stats(self, ctx):
+        """Show connected servers and metrics."""
+        # Get connected servers sorted by population
+        guilds = sorted(self.bot.guilds, key=lambda g: g.member_count, reverse=True)
+        server_list = "\n".join([f"• {g.name} ({g.member_count} members)" for g in guilds[:10]])  # Top 10
+
+        # Get metrics from database
+        async with aiosqlite.connect("meme_connect.db") as db:
+            # Most posts by server
+            async with db.execute("""
+                SELECT guild_id, COUNT(message_id) as post_count
+                FROM memes
+                GROUP BY guild_id
+                ORDER BY post_count DESC
+                LIMIT 5
+            """) as cursor:
+                top_posts_raw = await cursor.fetchall()
+
+            # Most liked server (upvotes - downvotes)
+            async with db.execute("""
+                SELECT guild_id, SUM(upvotes - downvotes) as net_likes
+                FROM memes
+                GROUP BY guild_id
+                ORDER BY net_likes DESC
+                LIMIT 5
+            """) as cursor:
+                top_liked_raw = await cursor.fetchall()
+
+        # Get guild names
+        def get_guild_name(guild_id):
+            guild = self.bot.get_guild(guild_id)
+            return guild.name if guild else f"Unknown ({guild_id})"
+
+        top_posts = [(get_guild_name(gid), count) for gid, count in top_posts_raw]
+        top_liked = [(get_guild_name(gid), likes) for gid, likes in top_liked_raw]
+
+        posts_str = "\n".join([f"• {name}: {count} posts" for name, count in top_posts])
+        likes_str = "\n".join([f"• {name}: {likes} net likes" for name, likes in top_liked])
+
+        embed = discord.Embed(title="📊 MemeConnect Stats", color=discord.Color.blue())
+        embed.add_field(name="🌐 Connected Servers (by population)", value=server_list or "None", inline=False)
+        embed.add_field(name="📈 Most Posts by Server", value=posts_str or "No data", inline=False)
+        embed.add_field(name="❤️ Most Liked Server", value=likes_str or "No data", inline=False)
+
+        await ctx.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(Setup(bot))
