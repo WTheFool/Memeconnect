@@ -88,36 +88,41 @@ class Relay(commands.Cog):
         # 5. Process each attachment
         processed_attachments = []
         for attachment in valid_attachments:
-            img_bytes = await attachment.read()
+            try:
+                img_bytes = await attachment.read()
 
-            # A. Hash Check (Free/Fast)
-            img_hash = generate_phash(img_bytes)
-            async with aiosqlite.connect("meme_connect.db") as db:
-                async with db.execute("SELECT image_hash FROM banned_hashes WHERE image_hash = ?", (img_hash,)) as cursor:
-                    if await cursor.fetchone():
-                        continue  # Skip this one
+                # A. Hash Check (Free/Fast) - Skip for videos since PIL can't handle them
+                if attachment.content_type.startswith('image/'):
+                    img_hash = generate_phash(img_bytes)
+                    async with aiosqlite.connect("meme_connect.db") as db:
+                        async with db.execute("SELECT image_hash FROM banned_hashes WHERE image_hash = ?", (img_hash,)) as cursor:
+                            if await cursor.fetchone():
+                                continue  # Skip this one
 
-            # B. Local Neural Net Check (The Brain)
-            if self.model:
-                prediction = predict_meme(img_bytes, self.model)
-                if prediction == 1:
-                    continue  # Skip
-
-            # C. OpenAI Check (The $5 Backup)
-            if os.getenv('USE_OPENAI_AI') == 'True':
-                try:
-                    client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-                    response = client.moderations.create(
-                        model="omni-moderation-latest",
-                        input=[{"type": "image_url", "image_url": {"url": attachment.url}}]
-                    )
-                    if response.results[0].flagged:
+                # B. Local Neural Net Check (The Brain) - Only for images
+                if self.model and attachment.content_type.startswith('image/'):
+                    prediction = predict_meme(img_bytes, self.model)
+                    if prediction == 1:
                         continue  # Skip
-                except Exception as e:
-                    print(f"⚠️ OpenAI Moderation failed: {e}")
 
-            # If passed all checks, add to processed
-            processed_attachments.append((attachment, img_bytes))
+                # C. OpenAI Check (The $5 Backup)
+                if os.getenv('USE_OPENAI_AI') == 'True':
+                    try:
+                        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                        response = client.moderations.create(
+                            model="omni-moderation-latest",
+                            input=[{"type": "image_url", "image_url": {"url": attachment.url}}]
+                        )
+                        if response.results[0].flagged:
+                            continue  # Skip
+                    except Exception as e:
+                        print(f"⚠️ OpenAI Moderation failed: {e}")
+
+                # If passed all checks, add to processed
+                processed_attachments.append((attachment, img_bytes))
+            except Exception as e:
+                print(f"⚠️ Failed to process attachment {attachment.filename}: {e}")
+                continue  # Skip this attachment
 
         if not processed_attachments:
             await message.delete()
