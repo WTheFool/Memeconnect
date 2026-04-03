@@ -52,6 +52,7 @@ class Relay(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
+        print(f"📨 Message in channel '{message.channel.name}' with {len(message.attachments)} attachments")
         # 1. Basic Filters
         if message.author.bot: return
 

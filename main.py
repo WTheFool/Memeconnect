@@ -71,33 +71,8 @@ class MemeConnect(commands.Bot):
             except Exception as e:
                 print(f"❌ Failed to load {cog}: {e}")
 
-        # C. Populate Channels Table for Existing Guilds (Fix for Render's ephemeral storage)
-        async with aiosqlite.connect(self.config['DB_PATH']) as db:
-            for guild in self.guilds:
-                dank_channel = discord.utils.get(guild.text_channels, name="dank-memes")
-                wholesome_channel = discord.utils.get(guild.text_channels, name="wholesome-memes")
-                
-                try:
-                    if not dank_channel:
-                        dank_channel = await guild.create_text_channel('dank-memes')
-                    if not wholesome_channel:
-                        wholesome_channel = await guild.create_text_channel('wholesome-memes')
-                        
-                    # Register the new channels in the database
-                    await db.execute(
-                        "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
-                        (guild.id, dank_channel.id, "dank")
-                    )
-                    await db.execute(
-                        "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
-                        (guild.id, wholesome_channel.id, "wholesome")
-                    )
-                except discord.Forbidden:
-                    print(f"❌ Missing permissions to create channels in {guild.name}")
-                except Exception as e:
-                    print(f"❌ Error creating channels in {guild.name}: {e}")
-            await db.commit()
-        print("✅ Populated channels table for existing guilds.")
+        # Channel population moved to on_ready
+        print("✅ Setup complete - waiting for guilds to load...")
 
         # D. Start Background Tasks
         self.check_judicial_trials.start()
@@ -174,6 +149,34 @@ async def on_ready():
     print(f"🛡️ Admin ID: {bot.config.get('ADMIN_ID')}")
     print(f"🌐 Connected to {len(bot.guilds)} guilds")
     print("-" * 30)
+
+    # --- POPULATE CHANNELS TABLE FOR GUILDs ---
+    async with aiosqlite.connect(bot.config['DB_PATH']) as db:
+        for guild in bot.guilds:
+            dank_channel = discord.utils.get(guild.text_channels, name="dank-memes")
+            wholesome_channel = discord.utils.get(guild.text_channels, name="wholesome-memes")
+            
+            try:
+                if not dank_channel:
+                    dank_channel = await guild.create_text_channel('dank-memes')
+                if not wholesome_channel:
+                    wholesome_channel = await guild.create_text_channel('wholesome-memes')
+                    
+                # Register the new channels in the database
+                await db.execute(
+                    "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
+                    (guild.id, dank_channel.id, "dank")
+                )
+                await db.execute(
+                    "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
+                    (guild.id, wholesome_channel.id, "wholesome")
+                )
+            except discord.Forbidden:
+                print(f"❌ Missing permissions to create channels in {guild.name}")
+            except Exception as e:
+                print(f"❌ Error creating channels in {guild.name}: {e}")
+        await db.commit()
+    print("✅ Populated channels table for existing guilds.")
 
 
 # Start Carlos Matos
