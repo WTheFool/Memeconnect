@@ -75,16 +75,25 @@ class MemeConnect(commands.Bot):
                 dank_channel = discord.utils.get(guild.text_channels, name="dank-memes")
                 wholesome_channel = discord.utils.get(guild.text_channels, name="wholesome-memes")
                 
-                if dank_channel:
+                try:
+                    if not dank_channel:
+                        dank_channel = await guild.create_text_channel('dank-memes')
+                    if not wholesome_channel:
+                        wholesome_channel = await guild.create_text_channel('wholesome-memes')
+                        
+                    # Register the new channels in the database
                     await db.execute(
                         "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
                         (guild.id, dank_channel.id, "dank")
                     )
-                if wholesome_channel:
                     await db.execute(
                         "INSERT OR IGNORE INTO channels (guild_id, channel_id, category) VALUES (?, ?, ?)",
                         (guild.id, wholesome_channel.id, "wholesome")
                     )
+                except discord.Forbidden:
+                    print(f"❌ Missing permissions to create channels in {guild.name}")
+                except Exception as e:
+                    print(f"❌ Error creating channels in {guild.name}: {e}")
             await db.commit()
         print("✅ Populated channels table for existing guilds.")
 

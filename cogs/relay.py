@@ -8,13 +8,13 @@ import torch.nn as nn
 from torchvision import models
 from utils.hasher import generate_phash, predict_meme
 import openai
+import asyncio
+import io
 
 
 class Relay(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.user_cooldowns = {}
-        self.COOLDOWN_TIME = 30  # Increased cooldown to prevent API spam
 
         # --- LOAD LOCAL NEURAL NET (The Brain) ---
         self.model = self.load_local_brain()
@@ -77,14 +77,7 @@ class Relay(commands.Cog):
                 is_staff = user_data[1] if user_data else 0
                 if is_banned: return
 
-        # 5. Cooldown (Staff Bypass)
-        now = time.time()
-        if not is_staff and message.author.id in self.user_cooldowns:
-            if now - self.user_cooldowns[message.author.id] < self.COOLDOWN_TIME:
-                await message.delete()
-                return await message.channel.send(f"⏳ WASA WASA! {self.COOLDOWN_TIME}s cooldown.", delete_after=5)
-
-        # 6. Processing the Meme
+        # 5. Processing the Meme
         attachment = message.attachments[0]
         img_bytes = await attachment.read()
 
@@ -122,14 +115,17 @@ class Relay(commands.Cog):
                 # We can still proceed if the local net passed and OpenAI fails temporarily, 
                 # or block it. Usually safe to proceed if local AI is fine.
 
-        # 7. Auto-Broadcast (Bypass Quarantine if it passed AI checks)
-        self.user_cooldowns[message.author.id] = now
-        
+        # 7. Queue the Meme for Broadcast
+        await message.channel.send("Meme queued!", delete_after=5)
+        await message.delete()
+        self.bot.loop.create_task(self.broadcast_meme(message, category, img_bytes, badge))
+
+    async def broadcast_meme(self, message, category, img_bytes, badge):
         # Prepare for broadcast
-        badge = await self.get_badge_prefix(message.author.id)
         embed = discord.Embed(title=f"🚀 New {category.capitalize()} Meme", color=discord.Color.gold())
         embed.set_author(name=f"{badge}{message.author.name}", icon_url=message.author.display_avatar.url)
-        embed.set_image(url=attachment.url)
+        file = discord.File(io.BytesIO(img_bytes), filename="meme.png")
+        embed.set_image(url="attachment://meme.png")
         
         # Fetch all target channels
         async with aiosqlite.connect("meme_connect.db") as db:
@@ -137,16 +133,34 @@ class Relay(commands.Cog):
                                   (category,)) as cursor:
                 channels = await cursor.fetchall()
 
+        print(f"Broadcasting to {len(channels)} total channels for category {category}")
+
         sent_count = 0
+        # First, send to origin channel
+        try:
+            m = await message.channel.send(file=file, embed=embed)
+            await m.add_reaction("⬆️")
+            await m.add_reaction("⬇️")
+            await m.add_reaction("🚩")
+            async with aiosqlite.connect("meme_connect.db") as db:
+                await db.execute(
+                    "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
+                    (m.id, message.author.id, "attachment://meme.png", category)
+                )
+                await db.commit()
+        except Exception as e:
+            print(f"Error sending to origin channel: {e}")
+
+        # Then, send to other channels with 2s delay between
         for (chan_id,) in channels:
-            # Do not re-send to the exact same channel it was posted from
             if chan_id == message.channel.id:
                 continue
                 
             chan = self.bot.get_channel(chan_id)
             if chan:
+                await asyncio.sleep(2)
                 try:
-                    m = await chan.send(embed=embed)
+                    m = await chan.send(file=file, embed=embed)
                     await m.add_reaction("⬆️")
                     await m.add_reaction("⬇️")
                     await m.add_reaction("🚩")
@@ -155,7 +169,7 @@ class Relay(commands.Cog):
                     async with aiosqlite.connect("meme_connect.db") as db:
                         await db.execute(
                             "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
-                            (m.id, message.author.id, attachment.url, category)
+                            (m.id, message.author.id, "attachment://meme.png", category)
                         )
                         await db.commit()
                     sent_count += 1
@@ -164,25 +178,11 @@ class Relay(commands.Cog):
                 except Exception as e:
                     print(f"Error broadcasting to channel {chan_id}: {e}")
 
-        # Provide a quick ephemeral-like status in the origin channel (or delete the original entirely and let them see the local bot message)
-        # Replacing the user's message with the embedded version in their local channel to maintain format consistency
+        # Tell the user it broadcast successfully
         try:
-            m = await message.channel.send(embed=embed)
-            await m.add_reaction("⬆️")
-            await m.add_reaction("⬇️")
-            await m.add_reaction("🚩")
-            async with aiosqlite.connect("meme_connect.db") as db:
-                await db.execute(
-                    "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
-                    (m.id, message.author.id, attachment.url, category)
-                )
-                await db.commit()
-            
-            await message.delete()
-            # Optional: Tell the user it broadcast successfully
-            info_msg = await message.channel.send(f"✨ Broadcasted to {sent_count} other servers.", delete_after=5)
+            info_msg = await message.channel.send(f"✨ Broadcasted to {sent_count} other servers.", delete_after=10)
         except Exception as e:
-            print(f"Error updating local channel: {e}")
+            print(f"Error sending broadcast info: {e}")
 
 
 async def setup(bot):

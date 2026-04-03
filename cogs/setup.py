@@ -20,14 +20,14 @@ class Setup(commands.Cog):
                 if row[1]: return 1  # Mod
         return 0
 
-    @commands.group(invoke_without_command=True, name="memeconnect_setup")
-    async def memeconnect_setup(self, ctx):
+    @commands.group(invoke_without_command=True, name="memeconnect")
+    async def memeconnect(self, ctx):
         await ctx.send("WASA WASA! Use `promote`, `demote`, or `connect`.")
 
-    @memeconnect_setup.group()
+    @memeconnect.group()
     async def promote(self, ctx):
         if ctx.invoked_subcommand is None:
-            await ctx.send("Usage: `!memeconnect_setup promote moderator @user` or `admin @user`.")
+            await ctx.send("Usage: `!memeconnect promote moderator @user` or `admin @user`.")
 
     @promote.command(name="moderator")
     async def promote_mod(self, ctx, user: discord.User):
@@ -56,10 +56,10 @@ class Setup(commands.Cog):
             await db.commit()
         await ctx.send(f"👑 {user.name} is now a **Global Admin**.")
 
-    @memeconnect_setup.group()
+    @memeconnect.group()
     async def demote(self, ctx):
         if ctx.invoked_subcommand is None:
-            await ctx.send("Usage: `!memeconnect_setup demote moderator @user` or `admin @user`.")
+            await ctx.send("Usage: `!memeconnect demote moderator @user` or `admin @user`.")
 
     @demote.command(name="moderator")
     async def demote_mod(self, ctx, user: discord.User):
