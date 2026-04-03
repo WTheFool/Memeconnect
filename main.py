@@ -38,6 +38,7 @@ def keep_alive():
 
 class MemeConnect(commands.Bot):
     def __init__(self):
+        print("🔧 Initializing MemeConnect bot...")
         # We only enable default intents here to avoid privileged intent errors.
         # If you need Server Members or Message Content later, enable them in the
         # Discord Developer Portal first, then add them back here.
@@ -56,6 +57,7 @@ class MemeConnect(commands.Bot):
 
     async def setup_hook(self):
         """Runs once when the bot starts up."""
+        print("📋 Starting setup_hook...")
         # A. Initialize Database (Ensures tables exist)
         await database.init_db()
 
@@ -170,6 +172,7 @@ async def on_ready():
     print("-" * 30)
     print(f"🚀 WASA WASA WASA! {bot.user.name} IS LIVE ON RENDER!")
     print(f"🛡️ Admin ID: {bot.config.get('ADMIN_ID')}")
+    print(f"🌐 Connected to {len(bot.guilds)} guilds")
     print("-" * 30)
 
 
