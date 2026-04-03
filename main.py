@@ -151,15 +151,19 @@ async def on_ready():
     print("-" * 30)
 
     # --- POPULATE CHANNELS TABLE FOR GUILDs ---
+    print("📂 Populating channels table...")
     async with aiosqlite.connect(bot.config['DB_PATH']) as db:
         for guild in bot.guilds:
+            print(f"  Checking guild: {guild.name}")
             dank_channel = discord.utils.get(guild.text_channels, name="dank-memes")
             wholesome_channel = discord.utils.get(guild.text_channels, name="wholesome-memes")
             
             try:
                 if not dank_channel:
+                    print(f"    Creating dank-memes in {guild.name}")
                     dank_channel = await guild.create_text_channel('dank-memes')
                 if not wholesome_channel:
+                    print(f"    Creating wholesome-memes in {guild.name}")
                     wholesome_channel = await guild.create_text_channel('wholesome-memes')
                     
                 # Register the new channels in the database
@@ -172,11 +176,21 @@ async def on_ready():
                     (guild.id, wholesome_channel.id, "wholesome")
                 )
             except discord.Forbidden:
-                print(f"❌ Missing permissions to create channels in {guild.name}")
+                print(f"    ❌ Missing permissions to create channels in {guild.name}")
             except Exception as e:
-                print(f"❌ Error creating channels in {guild.name}: {e}")
+                print(f"    ❌ Error creating channels in {guild.name}: {e}")
         await db.commit()
-    print("✅ Populated channels table for existing guilds.")
+    
+    # Verify channels were registered
+    async with aiosqlite.connect(bot.config['DB_PATH']) as db:
+        async with db.execute("SELECT COUNT(*) FROM channels") as cursor:
+            count = (await cursor.fetchone())[0]
+        async with db.execute("SELECT guild_id, channel_id, category FROM channels") as cursor:
+            channels_data = await cursor.fetchall()
+    
+    print(f"✅ Channels table populated: {count} total channels registered")
+    for guild_id, chan_id, cat in channels_data:
+        print(f"   - Guild {guild_id}: {cat} -> Channel {chan_id}")
 
 
 # Start Carlos Matos

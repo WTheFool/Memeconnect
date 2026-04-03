@@ -15,6 +15,7 @@ import io
 class Relay(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.processing = set()  # Track messages being processed to prevent duplicates
 
         # --- LOAD LOCAL NEURAL NET (The Brain) ---
         self.model = self.load_local_brain()
