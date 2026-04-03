@@ -124,6 +124,7 @@ class Relay(commands.Cog):
             return await message.channel.send("🚫 No valid memes passed the checks.", delete_after=5)
 
         # 6. Queue the batch
+        badge = await self.get_badge_prefix(message.author.id)
         await message.channel.send(f"Meme(s) queued! ({len(processed_attachments)})", delete_after=5)
         await message.delete()
         self.bot.loop.create_task(self.broadcast_batch(message, processed_attachments, category, badge))

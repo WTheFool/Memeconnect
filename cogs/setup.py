@@ -22,15 +22,18 @@ class Setup(commands.Cog):
 
     @commands.group(invoke_without_command=True, name="memeconnect")
     async def memeconnect(self, ctx):
-        await ctx.send("WASA WASA! Use `promote`, `demote`, or `connect`.")
+        """MemeConnect command group. Use subcommands: promote, demote, stats."""
+        await ctx.send("WASA WASA! Use `promote`, `demote`, or `stats`.")
 
     @memeconnect.group()
     async def promote(self, ctx):
+        """Promote a user to moderator or admin."""
         if ctx.invoked_subcommand is None:
-            await ctx.send("Usage: `!memeconnect promote moderator @user` or `admin @user`.")
+            await ctx.send("Usage: `!memeconnect promote moderator @user` or `!memeconnect promote admin @user`.")
 
     @promote.command(name="moderator")
     async def promote_mod(self, ctx, user: discord.User):
+        """Promote a user to Global Moderator."""
         rank = await self.get_role(ctx.author.id)
         if rank < 2:  # Must be Admin or Founder
             return await ctx.send("❌ Only Admins or the Founder can hire moderators!")
@@ -44,6 +47,7 @@ class Setup(commands.Cog):
 
     @promote.command(name="admin")
     async def promote_admin(self, ctx, user: discord.User):
+        """Appoint a user as Global Admin."""
         rank = await self.get_role(ctx.author.id)
         if rank < 3:  # Only Founder
             return await ctx.send("❌ Only the Founder can appoint Admins!")
@@ -58,11 +62,13 @@ class Setup(commands.Cog):
 
     @memeconnect.group()
     async def demote(self, ctx):
+        """Demote a user from moderator or admin."""
         if ctx.invoked_subcommand is None:
-            await ctx.send("Usage: `!memeconnect demote moderator @user` or `admin @user`.")
+            await ctx.send("Usage: `!memeconnect demote moderator @user` or `!memeconnect demote admin @user`.")
 
     @demote.command(name="moderator")
     async def demote_mod(self, ctx, user: discord.User):
+        """Remove moderator privileges from a user."""
         rank = await self.get_role(ctx.author.id)
         if rank < 2:
             return await ctx.send("❌ You don't have the authority to fire moderators.")
@@ -74,6 +80,7 @@ class Setup(commands.Cog):
 
     @demote.command(name="admin")
     async def demote_admin(self, ctx, user: discord.User):
+        """Demote an admin, retaining moderator status."""
         if ctx.author.id != self.owner_id:
             return await ctx.send("❌ Only the Founder can demote Admins.")
 
