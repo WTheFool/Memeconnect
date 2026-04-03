@@ -5,6 +5,11 @@ import aiosqlite
 from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
+import sys
+
+# Fix Unicode emoji encoding on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
 
 import database
 

@@ -140,7 +140,7 @@ class Relay(commands.Cog):
 
             # 6. Queue the batch
             badge = await self.get_badge_prefix(message.author.id)
-            await message.channel.send(f"Meme(s) queued! ({len(processed_attachments)})", delete_after=5)
+            await message.channel.send(f"Meme queued!", delete_after=5)
             await message.delete()
             self.bot.loop.create_task(self.broadcast_batch(message, processed_attachments, category, badge))
         finally:
@@ -148,22 +148,13 @@ class Relay(commands.Cog):
             self.processing.discard(message.id)
 
     async def broadcast_single(self, message, attachment, img_bytes, category, badge):
-        # Prepare for broadcast
-        embed = discord.Embed(title=f"🚀 New {category.capitalize()} Meme", color=discord.Color.gold())
-        embed.set_author(name=f"{badge}{message.author.name}", icon_url=message.author.display_avatar.url)
-        filename = attachment.filename
-        
-        # Set image for embeds only if it's an image
-        if attachment.content_type and attachment.content_type.startswith('image/'):
-            embed.set_image(url=f"attachment://{filename}")
-        
         # Fetch all target channels
         async with aiosqlite.connect("meme_connect.db") as db:
             async with db.execute("SELECT channel_id FROM channels WHERE category = ?",
                                   (category,)) as cursor:
                 channels = await cursor.fetchall()
 
-        print(f"Broadcasting meme {filename} to {len(channels)} channels")
+        print(f"Broadcasting meme {attachment.filename} to {len(channels)} channels")
 
         # Send to all channels with 2s delay between
         for i, (chan_id,) in enumerate(channels):
@@ -173,6 +164,15 @@ class Relay(commands.Cog):
             chan = self.bot.get_channel(chan_id)
             if chan:
                 try:
+                    # Prepare for broadcast
+                    embed = discord.Embed(title=f"🚀 New {category.capitalize()} Meme", color=discord.Color.gold())
+                    embed.set_author(name=f"{badge}{message.author.name}", icon_url=message.author.display_avatar.url)
+                    filename = attachment.filename
+                    
+                    # Set image for embeds only if it's an image
+                    if attachment.content_type and attachment.content_type.startswith('image/'):
+                        embed.set_image(url=f"attachment://{filename}")
+                        
                     # IMPORTANT: Recreate the file object for each send!
                     # Discord.File can only be sent once, so we must create a fresh copy
                     file = discord.File(io.BytesIO(img_bytes), filename=filename)
@@ -183,10 +183,15 @@ class Relay(commands.Cog):
 
                     # Store in Memes table for Rankings
                     async with aiosqlite.connect("meme_connect.db") as db:
-                        await db.execute(
-                            "INSERT INTO memes (message_id, author_id, attachment_url, category, guild_id) VALUES (?, ?, ?, ?, ?)",
-                            (m.id, message.author.id, f"attachment://{filename}", category, chan.guild.id)
-                        )
+                        # We use try/except block just in case the db schema doesn't have guild_id
+                        try:
+                            await db.execute(
+                                "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
+                                (m.id, message.author.id, attachment.url, category)
+                            )
+                        except aiosqlite.OperationalError:
+                            print("Warning: Failed to insert meme into DB.")
+                            pass
                         await db.commit()
                     print(f"✅ Posted to channel {chan_id}")
                 except discord.Forbidden:
