@@ -133,8 +133,9 @@ class Relay(commands.Cog):
         embed = discord.Embed(title=f"🚀 New {category.capitalize()} Meme", color=discord.Color.gold())
         embed.set_author(name=f"{badge}{message.author.name}", icon_url=message.author.display_avatar.url)
         filename = attachment.filename
-        file = discord.File(io.BytesIO(img_bytes), filename=filename)
-        if attachment.content_type.startswith('image/'):
+        
+        # Set image for embeds only if it's an image
+        if attachment.content_type and attachment.content_type.startswith('image/'):
             embed.set_image(url=f"attachment://{filename}")
         
         # Fetch all target channels
@@ -153,6 +154,9 @@ class Relay(commands.Cog):
             chan = self.bot.get_channel(chan_id)
             if chan:
                 try:
+                    # IMPORTANT: Recreate the file object for each send!
+                    # Discord.File can only be sent once, so we must create a fresh copy
+                    file = discord.File(io.BytesIO(img_bytes), filename=filename)
                     m = await chan.send(file=file, embed=embed)
                     await m.add_reaction("⬆️")
                     await m.add_reaction("⬇️")
@@ -165,10 +169,12 @@ class Relay(commands.Cog):
                             (m.id, message.author.id, f"attachment://{filename}", category, chan.guild.id)
                         )
                         await db.commit()
+                    print(f"✅ Posted to channel {chan_id}")
                 except discord.Forbidden:
+                    print(f"❌ No permission to post in channel {chan_id}")
                     continue
                 except Exception as e:
-                    print(f"Error broadcasting to channel {chan_id}: {e}")
+                    print(f"❌ Error broadcasting to channel {chan_id}: {e}")
 
     async def broadcast_batch(self, message, processed_attachments, category, badge):
         for attachment, img_bytes in processed_attachments:
