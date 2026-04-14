@@ -17,6 +17,7 @@ class Rankings(commands.Cog):
         embed.add_field(name="`!memeconnect top_users`", value="Shows the 10 users with the highest net score.", inline=False)
         embed.add_field(name="`!memeconnect worst_users`", value="Shows the 10 users with the lowest net score.", inline=False)
         embed.add_field(name="`!memeconnect stats`", value="Shows server leaderboard statistics.", inline=False)
+        embed.add_field(name="`!memeconnect network`", value="Displays all servers connected to the MemeConnect network.", inline=False)
         
         embed.add_field(name="`!strike @user [reason]`", value="Issue a strike to a user (Staff only).", inline=False)
         embed.add_field(name="`!appeal [reason]`", value="Send an appeal to the board.", inline=False)
@@ -24,6 +25,29 @@ class Rankings(commands.Cog):
         embed.add_field(name="`!memeconnect_setup promote/demote moderator/admin @user`", value="Manage staff roles (Admin/Founder only).", inline=False)
         
         embed.set_footer(text="WASA WASA WASA!")
+        await ctx.send(embed=embed)
+
+    @memeconnect.command()
+    async def network(self, ctx):
+        guilds = self.bot.guilds
+        if not guilds:
+            return await ctx.send("The bot is not connected to any servers yet!")
+
+        embed = discord.Embed(title="🌐 MemeConnect Network", color=discord.Color.green())
+        embed.description = f"Currently connected to **{len(guilds)}** servers!"
+        
+        # We can list up to ~20 servers before the embed gets too large.
+        # If there are many, we list the top 20 by member count.
+        sorted_guilds = sorted(guilds, key=lambda g: g.member_count, reverse=True)
+        
+        server_list = ""
+        for i, guild in enumerate(sorted_guilds[:20], 1):
+            server_list += f"{i}. **{guild.name}** ({guild.member_count} members)\n"
+            
+        if len(guilds) > 20:
+            server_list += f"\n*...and {len(guilds) - 20} more!*"
+            
+        embed.add_field(name="Connected Servers", value=server_list, inline=False)
         await ctx.send(embed=embed)
 
     @memeconnect.command()
