@@ -155,6 +155,9 @@ class Relay(commands.Cog):
                 channels = await cursor.fetchall()
 
         print(f"Broadcasting meme {attachment.filename} to {len(channels)} channels")
+        
+        origin_guild_id = message.guild.id if message.guild else None
+        origin_server_name = message.guild.name if message.guild else "Unknown Server"
 
         # Send to all channels with 2s delay between
         for i, (chan_id,) in enumerate(channels):
@@ -167,6 +170,7 @@ class Relay(commands.Cog):
                     # Prepare for broadcast
                     embed = discord.Embed(title=f"🚀 New {category.capitalize()} Meme", color=discord.Color.gold())
                     embed.set_author(name=f"{badge}{message.author.name}", icon_url=message.author.display_avatar.url)
+                    embed.set_footer(text=f"🌐 Origin: {origin_server_name}") # Server of origin footer
                     filename = attachment.filename
                     
                     # Set image for embeds only if it's an image
@@ -181,13 +185,14 @@ class Relay(commands.Cog):
                     await m.add_reaction("⬇️")
                     await m.add_reaction("🚩")
 
-                    # Store in Memes table for Rankings
+                    # Store in Memes table for Rankings - including origin_guild_id
                     async with aiosqlite.connect("meme_connect.db") as db:
                         # We use try/except block just in case the db schema doesn't have guild_id
                         try:
+                            # We record the origin_guild_id in the guild_id column so votes map back to it
                             await db.execute(
-                                "INSERT INTO memes (message_id, author_id, attachment_url, category) VALUES (?, ?, ?, ?)",
-                                (m.id, message.author.id, attachment.url, category)
+                                "INSERT INTO memes (message_id, author_id, attachment_url, category, guild_id) VALUES (?, ?, ?, ?, ?)",
+                                (m.id, message.author.id, attachment.url, category, origin_guild_id)
                             )
                         except aiosqlite.OperationalError:
                             print("Warning: Failed to insert meme into DB.")
